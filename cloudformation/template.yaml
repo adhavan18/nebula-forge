@@ -1,0 +1,9 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Release sentinel that decides promote vs quarantine from deployment signals.
+Globals: { Function: { Runtime: nodejs22.x, Timeout: 15, MemorySize: 256, Tracing: Active } }
+Resources:
+  ReleaseDLQ: { Type: AWS::SQS::Queue, Properties: { SqsManagedSseEnabled: true, MessageRetentionPeriod: 1209600 } }
+  Sentinel: { Type: AWS::Serverless::Function, Properties: { CodeUri: ../services/sentinel, Handler: index.handler, ReservedConcurrentExecutions: 5, Policies: [AWSLambdaBasicExecutionRole], Events: { ReleaseBus: { Type: EventBridgeRule, Properties: { Pattern: { source: [nebula.forge], detail-type: [ReleaseSignal] } } } } } }
+  ErrorAlarm: { Type: AWS::CloudWatch::Alarm, Properties: { Namespace: AWS/Lambda, MetricName: Errors, Dimensions: [{ Name: FunctionName, Value: !Ref Sentinel }], Statistic: Sum, Period: 300, EvaluationPeriods: 1, Threshold: 1, ComparisonOperator: GreaterThanOrEqualToThreshold, TreatMissingData: notBreaching } }
+Outputs: { SentinelArn: { Value: !GetAtt Sentinel.Arn }, DLQ: { Value: !Ref ReleaseDLQ } }

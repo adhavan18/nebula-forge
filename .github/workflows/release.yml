@@ -1,0 +1,12 @@
+name: signed-release
+on: { workflow_dispatch: {}, push: { tags: ['v*.*.*'] } }
+permissions: { contents: read, id-token: write }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - { uses: actions/checkout@v4 }
+      - { uses: aws-actions/configure-aws-credentials@v4, with: { role-to-assume: ${{ secrets.NEBULA_DEPLOY_ROLE_ARN }}, aws-region: ${{ vars.AWS_REGION }} } }
+      - { uses: aws-actions/amazon-ecr-login@v2 }
+      - { uses: docker/build-push-action@v6, with: { context: services/release-api, push: true, tags: ${{ vars.ECR_REPOSITORY }}:${{ github.sha }} } }
+      - { uses: anchore/sbom-action@v0, with: { image: ${{ vars.ECR_REPOSITORY }}:${{ github.sha }}, artifact-name: nebula-sbom.spdx.json, output-file: nebula-sbom.spdx.json } }
