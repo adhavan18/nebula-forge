@@ -1,72 +1,93 @@
-# Nebula Forge
+# nebula forge
 
-## The AI Release Control Plane
+nebula forge is my aws deployment project for ai services.
 
-Nebula Forge is a production-style release platform for AI services. It treats every model or prompt release as an auditable, reversible deployment event: build an immutable image, run policy gates, promote through environments, and automatically quarantine unhealthy versions.
+the idea is simple: when i have a new version of an ai api, the project builds it, checks it, deploys it, watches it, and gives me a way to stop a bad release.
 
-This is a standalone portfolio project — separate from any other application.
+## what happens
 
-```mermaid
-flowchart LR
-  Dev[Pull request] --> GHA[GitHub Actions]
-  GHA --> Scan[Tests + Trivy + SBOM]
-  Scan --> ECR[ECR immutable image]
-  ECR --> CP[CodePipeline promotion]
-  CP --> ECS[ECS canary API]
-  CP --> EKS[EKS burst workers]
-  Event[EventBridge release event] --> L[Lambda release sentinel]
-  L --> CW[CloudWatch metrics + alarms]
-  Trail[CloudTrail] --> Audit[S3 audit vault]
-  CW --> L
-  L --> Rollback[Rollback / quarantine]
-```
-
-## Why it is “crazy”
-
-- Canary releases are evaluated by a Lambda sentinel that reads CloudWatch error-rate and latency signals.
-- The same release artifact can be promoted to ECS Fargate or EKS workers.
-- Terraform owns the long-lived AWS foundation; CloudFormation owns the event-driven release control plane.
-- CodePipeline is an AWS-native promotion lane; GitHub Actions is the developer feedback lane.
-- CloudTrail and an immutable audit bucket record who changed what and when.
-- OIDC, immutable tags, non-root containers, SBOMs, image scanning, health checks, and least privilege are first-class.
-
-## Stack coverage
-
-`Terraform` · `CloudFormation` · `AWS SAM` · `ECS Fargate` · `EKS` · `Lambda` · `CloudWatch` · `CloudTrail` · `GitHub Actions` · `CodePipeline` · `CodeBuild` · `ECR` · `EventBridge` · `SQS` · `IAM OIDC` · `Docker` · `Kubernetes`
-
-## Layout
+1. i push code to github.
+2. github actions runs the tests and security scan.
+3. docker builds the api image.
+4. the image is stored in amazon ecr.
+5. codepipeline can promote the image to aws.
+6. ecs runs the main api service.
+7. eks can run extra worker pods when more capacity is needed.
+8. lambda checks release signals and decides whether a release should be promoted or quarantined.
+9. cloudwatch watches logs, tasks, errors, and alarms.
+10. cloudtrail keeps an audit trail of aws changes.
 
 ```text
-terraform/       VPC, ECR, ECS canary service, CloudWatch, CloudTrail
-cloudformation/  release sentinel Lambda, EventBridge, SQS DLQ, alarms
-kubernetes/      EKS worker deployment, HPA, PDB, network policy
-services/        Node.js release API and sentinel package
-pipelines/       CodePipeline and CodeBuild definitions
-.github/         CI, security, release, and Terraform workflows
+github actions -> ecr -> codepipeline -> ecs
+                              |
+                              -> eks workers
+
+eventbridge -> lambda sentinel -> promote or quarantine
+
+ecs and lambda -> cloudwatch
+aws api activity -> cloudtrail -> s3
 ```
 
-## Run locally
+## tools i used
+
+- terraform for the aws network and ecs foundation
+- cloudformation and sam for the lambda release sentinel
+- ecs fargate for the api
+- eks and kubernetes for burst workers
+- lambda and eventbridge for release decisions
+- cloudwatch for logs and alarms
+- cloudtrail and s3 for audit logs
+- github actions for pull request checks and image releases
+- codepipeline and codebuild for an aws-native pipeline
+- docker and ecr for the container image
+- trivy and sbom generation for basic supply chain checks
+
+## project structure
+
+```text
+terraform/       aws network, ecs, ecr, cloudwatch, and cloudtrail
+cloudformation/  lambda, eventbridge, sqs, and alarms
+kubernetes/      eks worker deployment and autoscaling
+services/        api and release sentinel code
+pipelines/       codebuild configuration
+.github/         github actions workflows
+```
+
+## run the api locally
 
 ```bash
 cd services/release-api
-npm ci
+npm install
 npm test
 docker build -t nebula-forge-api .
 docker run --rm -p 8080:8080 nebula-forge-api
 curl http://localhost:8080/health
 ```
 
-## Deploy
+## deploy the infrastructure
 
 ```bash
 terraform -chdir=terraform init
 terraform -chdir=terraform plan -var='environment=dev'
+terraform -chdir=terraform apply -var='environment=dev'
+
 sam build --template-file cloudformation/template.yaml
 sam deploy --guided
 ```
 
-Production accounts should use an S3/DynamoDB Terraform backend, GitHub OIDC restricted to this repository, private subnets with VPC endpoints, a customer-managed KMS key, WAF, and separate AWS accounts per environment.
+the terraform stack creates the vpc, private subnets, nat gateway, ecr repository, ecs cluster, two fargate tasks, cloudwatch logs, an iam role, an audit bucket, and a cloudtrail trail.
 
-## Resume line
+the terraform stack does not create an eks cluster or configure github. those are separate steps.
 
-Built Nebula Forge, a production-style AWS AI release control plane using Terraform, CloudFormation/SAM, ECS Fargate, EKS, Lambda, CloudWatch, CloudTrail, GitHub Actions, CodePipeline, CodeBuild, ECR, EventBridge, IAM OIDC, container scanning, SBOMs, canary releases, and automated rollback signals.
+## what i learned
+
+- how infrastructure as code can create the same environment again
+- why containers need health checks and resource limits
+- how github oidc avoids storing long-lived aws keys
+- how cloudwatch and cloudtrail are different
+- why immutable images make deployments easier to roll back
+- how a small lambda can automate a release decision
+
+## honest project note
+
+i used ai assistance while building and explaining this project. i tested the local api, reviewed the generated files, and am using the project to learn aws devops patterns. the aws deployment still needs to be run in an aws account before it can be called a live production system.
